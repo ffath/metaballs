@@ -4,6 +4,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QSizeF>
+#include <QTimer>
 #include <QWidget>
 
 #include <vector>
