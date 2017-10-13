@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QLinkedList>
+#include <QMouseEvent>
 #include <QPainter>
+#include <QPoint>
 #include <QPointF>
 #include <QRectF>
 #include <QSizeF>
@@ -20,15 +22,11 @@ static const qreal max_segment_length = 0.1;
 static const qreal epsilon = 0.001;
 
 
-typedef QLinkedList<QPointF> Polygon;
-static std::vector<Polygon> polygons;
-
-
-
 class Charge : public QPointF {
 public:
     Charge(qreal value) : Charge(value, 0.0, 0.0) {}
     Charge(qreal charge, qreal x, qreal y) : QPointF(x, y), charge_(charge) {}
+    Charge(qreal charge, QPointF pt) : QPointF(pt), charge_(charge) {}
     Charge(const Charge &other) : QPointF(other), charge_(other.charge_) {}
 
     inline qreal charge() const {
@@ -40,7 +38,7 @@ public:
         qreal dy = y - this->y();
 
         if (dx == 0.0 && dy == 0.0)
-            return 0.0;
+            return INFINITY;
 
         // not the actual value of a point charge but who cares ?
         return charge_ / (dx * dx + dy * dy);
@@ -55,8 +53,6 @@ public:
         qreal dy4 = dy2 * dy2;
         qreal num = -2.0 * charge_;
         qreal denom = dx4 + 2.0 * dx2 * dy2 + dy4;
-
-//        qDebug() << __func__ << "x =" << dx << ", y =" << dy << ", num =" << num << ", denom =" << denom;
 
         if (denom == 0.0)
             return QPointF();
@@ -76,22 +72,107 @@ qreal fieldAt(qreal x, qreal y) {
     std::for_each(charges.begin(), charges.end(), [=, &value](const Charge &charge) {
         value += charge.valueAt(x, y);
     });
-//    qDebug() << __func__ << x << y << value;
     return value;
 }
+
 
 QPointF gradientAt(qreal x, qreal y) {
     QPointF gradient(0.0, 0.0);
     std::for_each(charges.begin(), charges.end(), [=, &gradient](const Charge &charge) {
         gradient += charge.gradientAt(x, y);
     });
-//    qDebug() << __func__ << x << y << gradient << sqrt(QPointF::dotProduct(gradient, gradient));
     return gradient;
 }
 
+
+class Polygon : public QLinkedList<QPointF> {
+public:
+    Polygon() {
+    }
+
+    Polygon(const Charge &charge) {
+        for (qreal alpha = 0.0; alpha < 2.0 * M_PI; alpha += M_PI / 2.0) {
+            QPointF p(cos(alpha), sin(alpha));
+            p *= charge.charge();
+            p += charge;
+            append(p);
+        }
+    }
+
+    int resample() {
+        int added = 0;
+        QPointF prev = last();
+        for (auto it = begin(); it != end(); it++) {
+            QPointF &pt = *it;
+            QPointF vect = pt - prev;
+            if (QPointF::dotProduct(vect, vect) > max_segment_length * max_segment_length) {
+                // too big, cut in half
+                insert(it, (pt + prev) / 2.0);
+                added ++;
+            }
+
+            // next
+            prev = pt;
+        }
+
+        return added;
+    }
+
+    int moveVertices() {
+        int moved = 0;
+        QPointF prev = last();
+        auto it = begin();
+        do {
+            QPointF &pt = *it++;
+            QPointF next = (it != end()) ? *it : first();
+
+            // compute normal
+            QPointF norm = next - prev;
+            norm = QPointF(-norm.y(), norm.x());
+            norm /= sqrt(QPointF::dotProduct(norm, norm));
+
+            // get normalized gradient
+            qreal gradval = 1.0;
+            QPointF gradvec = gradientAt(pt.x(), pt.y());
+            if (!gradvec.isNull()) {
+                gradval = sqrt(QPointF::dotProduct(gradvec, gradvec));
+                gradvec /= gradval;
+            }
+
+            // then move in the gradient direction
+            qreal value = fieldAt(pt.x(), pt.y());
+            qreal delta = isovalue - value;
+
+            prev = pt;
+
+            if (abs(delta) > epsilon) {
+                // pt is not close enough
+                qreal disp = delta / gradval;
+                if (value > 4 || abs(disp) > 0.5) {
+                    // (value > 4 ) => too close from the charge, go away fast
+                    // |disp| > 0.5 => too fast, risk of going too far
+                    disp = signbit(disp) ? -0.5 : 0.5;
+                }
+                pt += norm * disp;
+//                pt += gradvec * (delta / gradval);
+                moved++;
+            }
+        } while (it != end());
+
+        return moved;
+    }
+};
+
+static std::vector<Polygon> polygons;
+
+
 class DrawingArea : public QWidget {
 public:
-    DrawingArea(QWidget *parent = nullptr) : QWidget(parent), zoom_(100.0) {}
+    DrawingArea(QWidget *parent = nullptr) : QWidget(parent),
+        zoom_(100.0),
+        mouse_(0, 0),
+        mousePressed_(false) {
+    }
 
     void setZoom(qreal zoom) {
         zoom_ = zoom;
@@ -106,8 +187,6 @@ protected:
     void paintEvent(QPaintEvent *pe) override {
         (void) pe;
 
-        qDebug() << __func__;
-
         QPainter p(this);
 
         QSizeF s = size() / 2.0;
@@ -115,11 +194,30 @@ protected:
         p.scale(zoom_, zoom_);
         s /= zoom_;
 
+        if (mousePressed_) {
+            // move first charge
+            Charge &c = charges.front();
+            QPointF transformed = p.transform().inverted().map(QPointF(mouse_));
+            qDebug() << mouse_ << transformed;
+            c.setX(transformed.x());
+            c.setY(transformed.y());
+        }
+
+        if (polygons.empty()) {
+            // compute polygons
+            std::for_each(charges.begin(), charges.end(), [](const Charge &charge) {
+                Polygon polygon(charge);
+                while (polygon.moveVertices() || polygon.resample());
+                polygons.push_back(polygon);
+            });
+        }
+
         QPen pen(p.pen());
         pen.setWidth(0);
         p.setPen(pen);
 
         std::for_each(polygons.begin(), polygons.end(), [&p](const Polygon &polygon) {
+            // draw polygon
             QPointF prev = polygon.last();
             std::for_each(polygon.begin(), polygon.end(), [&](const QPointF &cur) {
                 p.drawLine(prev, cur);
@@ -128,110 +226,39 @@ protected:
         });
     }
 
+    void mousePressEvent(QMouseEvent *me) override {
+        qDebug() << __func__;
+        mousePressed_ = true;
+        mouseMoveEvent(me); // dirty
+    }
+
+    void mouseMoveEvent(QMouseEvent *me) override {
+        qDebug() << __func__;
+        mouse_ = me->pos();
+        polygons.clear();
+        update();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *me) override {
+        (void) me;
+        qDebug() << __func__;
+        mousePressed_ = false;
+    }
+
 private:
     qreal zoom_;
+    QPoint mouse_;
+    bool mousePressed_;
 };
-
-int moveVertices(Polygon &polygon) {
-    int moved = 0;
-    QPointF prev = polygon.last();
-    auto it = polygon.begin();
-    do {
-        QPointF &pt = *it++;
-        QPointF next = (it != polygon.end()) ? *it : polygon.first();
-
-        // compute normal
-        QPointF norm = next - prev;
-        norm = QPointF(-norm.y(), norm.x());
-        norm /= sqrt(QPointF::dotProduct(norm, norm));
-
-//        qDebug() << prev << pt << next << norm;
-
-        // get normalized gradient
-        qreal gradval = 1.0;
-        QPointF gradvec = gradientAt(pt.x(), pt.y());
-        if (!gradvec.isNull()) {
-            gradval = sqrt(QPointF::dotProduct(gradvec, gradvec));
-            gradvec /= gradval;
-        }
-
-        // then move in the gradient direction
-        qreal value = fieldAt(pt.x(), pt.y());
-        qreal delta = isovalue - value;
-
-        prev = pt;
-
-        if (abs(delta) > epsilon) {
-            if (value > 4)
-                gradval = abs(delta) * 2.0;
-            pt += norm * (delta / gradval);
-//            pt += gradvec * (delta / gradval);
-            moved++;
-        }
-    } while (it != polygon.end());
-
-    qDebug() << __func__ << moved;
-    return moved;
-}
-
-int resample0(Polygon &polygon) {
-    int added = 0;
-    auto it = polygon.begin();
-    QPointF prev = polygon.last();
-    while (it != polygon.end()) {
-        QPointF &pt = *it;
-
-        // resample ?
-        QPointF vect = pt - prev;
-        if (QPointF::dotProduct(vect, vect) > max_segment_length * max_segment_length) {
-            // too big, cut in half
-            it = polygon.insert(it, (pt + prev) / 2.0);
-            added ++;
-            continue; // try again with the newly inserted point
-        }
-
-        // next
-        prev = pt;
-        it++;
-    }
-
-    qDebug() << __func__ << added;
-    return added;
-}
-
-int resample(Polygon &polygon) {
-    int added = 0;
-    auto it = polygon.begin();
-    QPointF prev = polygon.last();
-    while (it != polygon.end()) {
-        QPointF &pt = *it;
-
-        // resample ?
-        QPointF vect = pt - prev;
-        if (QPointF::dotProduct(vect, vect) > max_segment_length * max_segment_length) {
-            // too big, cut in half
-            /*it =*/ polygon.insert(it, (pt + prev) / 2.0);
-            added ++;
-//            continue; // try again with the newly inserted point
-        }
-
-        // next
-        prev = pt;
-        it++;
-    }
-
-    qDebug() << __func__ << added;
-    return added;
-}
 
 bool process() {
     bool did_something = false;
 
     qDebug() << __func__;
 
-//    std::for_each(polygons.begin(), polygons.begin() + 1, [&did_something](Polygon &polygon) {
-    std::for_each(polygons.begin(), polygons.end(), [&did_something](Polygon &polygon) {
-        if (moveVertices(polygon) || resample(polygon)) {
+    std::for_each(polygons.begin(), polygons.begin() + 1, [&did_something](Polygon &polygon) {
+//    std::for_each(polygons.begin(), polygons.end(), [&did_something](Polygon &polygon) {
+        if (polygon.moveVertices() || polygon.resample()) {
             did_something = true;
         }
     });
@@ -254,26 +281,19 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
 
     // init charges
-//    charges.push_back(Charge(1.0, 0.0, 0.0));
-    charges.push_back(Charge(1.0, 0.0, 1.0));
-    charges.push_back(Charge(1.0, -2.0, -1.0));
-    charges.push_back(Charge(1.0, 2.0, -1.0));
+    charges.push_back(Charge(1.0, 0.0, 2.0));
+    charges.push_back(Charge(1.0, -2.0, -0.0));
+    charges.push_back(Charge(1.0, 2.0, -0.0));
+//    charges.push_back(Charge(1.0, 0.0, -2.0));
 
-    // init polygons
+    qDebug() << fieldAt(0.0, 0.0) << gradientAt(0.0, 0.0);
+
+#if 0
+    // debug: init polygons to make the timer draw the steps
     std::for_each(charges.begin(), charges.end(), [](const Charge &charge) {
-        Polygon polygon;
-        for (qreal alpha = 0.0; alpha < 2.0 * M_PI; alpha += M_PI / 2.0) {
-            QPointF p(cos(alpha), sin(alpha));
-            p *= charge.charge();
-            p += charge;
-            polygon << p;
-        }
-//        QRectF r(-0.25, -0.25, 0.5, 0.5);
-//        r.moveCenter(charge);
-//        polygon << r.topLeft() << r.topRight() << r.bottomRight() << r.bottomLeft();
-        polygons.push_back(polygon);
+        polygons.push_back(Polygon(charge));
     });
-
+#endif
     // gui
     DrawingArea da;
     da.resize(1280, 720);
@@ -281,7 +301,7 @@ int main(int argc, char *argv[])
 
     // timer
     Timer timer;
-    timer.setInterval(50);
+    timer.setInterval(100);
     QObject::connect(&timer, SIGNAL(timeout()), &da, SLOT(update()));
     timer.start();
 
