@@ -12,8 +12,7 @@ CONFIG -= app_bundle
 
 TEMPLATE = app
 
-SOURCES += main.cpp \
-    scalarfield.cpp
+SOURCES += main.cpp
 
 HEADERS += \
     scalarfield.h \

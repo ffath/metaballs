@@ -1,24 +1,23 @@
 #ifndef SCALARFIELD_H
 #define SCALARFIELD_H
 #include <QDebug>
-#include <QVector3D>
 
 #include <math.h>
 #include <time.h>
 
 #include "inlinemath.h"
 
+using namespace inlinemath;
+
 //#define CLOCK_TIMINGS
 
-static const float isovalue = 1.0;
-static const float epsilon = 0.001;
-static const float step = 0.5;
-static const int max_iterations = 20;
 
-template <class T>
+template <class D, class T>
 class ScalarField
 {
 public:
+    typedef T FloatType;
+
     ScalarField() :
         intersect_hit_(0),
         intersect_miss_(0),
@@ -45,30 +44,30 @@ public:
         }
     }
 
-    inline float valueAndGradientAt(const QVector3D &pos, QVector3D &gradient) const {
-        return static_cast<const T*>(this)->valueAndGradientAt(pos, gradient);
+    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
+        return static_cast<const D*>(this)->fieldAt(pos, gradient);
     }
 
     // (p, direction) -> starting point and normalized direction vector for the line to insect with
     // length -> max length to explore starting from p
     // i -> intersection if any
     // g -> gradient at i
-    inline bool intersect(const QVector3D &p, const QVector3D &direction, float length, QVector3D &i, QVector3D &g) const {
+    inline bool intersect(const Vector3D<T> &p, const Vector3D<T> &direction, T length, Vector3D<T> &i, Vector3D<T> &g) const {
 #ifdef CLOCK_TIMINGS
         struct timespec t0, t;
         clock_gettime(CLOCK_REALTIME, &t0);
 #endif
-        float walked = 0.0;
+        T walked = 0.0;
 
         // metrics
         int iterations = 0;
 
-        QVector3D pos = p;
-        QVector3D gradient;
-        float delta;
-        while (std::abs(delta = (isovalue - valueAndGradientAt(pos, gradient))) > epsilon && walked < length && iterations < max_iterations) {
-            float gradval = std::abs(inlinemath::dotProduct(gradient, direction)); // gradient value projected on direction
-            float disp = delta / gradval;
+        Vector3D<T> pos = p;
+        Vector3D<T> gradient;
+        T delta;
+        while (std::abs(delta = (isovalue - fieldAt(pos, gradient))) > epsilon && walked < length && iterations < max_iterations) {
+            T gradval = std::abs(Vector3D<T>::dotProduct(gradient, direction)); // gradient value projected on direction
+            T disp = delta / gradval;
             if (std::abs(disp) > step) { // going too fast ?
                 disp = signbit(disp) ? -step : step;
             }
@@ -116,6 +115,12 @@ public:
     }
 
 private:
+    // constants
+    static constexpr T isovalue = 1.0;
+    static constexpr T epsilon = 0.001;
+    static constexpr T step = 0.5;
+    static constexpr int max_iterations = 20;
+
     // metrics
     mutable int intersect_hit_;
     mutable int intersect_miss_;

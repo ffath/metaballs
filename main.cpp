@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QImage>
 #include <QLinkedList>
 #include <QList>
 #include <QMouseEvent>
@@ -24,61 +25,69 @@
 #include "inlinemath.h"
 #include "scalarfield.h"
 
-class Charge : public QVector3D, public ScalarField<Charge> {
+using namespace inlinemath;
+
+template <class T>
+class Charge : public Vector3D<T>, public ScalarField<Charge<T>, T> {
 public:
-    Charge(const QVector3D &pos, const float &value) : QVector3D(pos), value_(value) {}
+    Charge(T x, T y, T z, T value) : Vector3D<T>(x, y, z), value_(value) {}
 
-    Charge() : Charge(QVector3D(), 0.0) {}
+    Charge(const Vector3D<T> &pos, T value) : Vector3D<T>(pos), value_(value) {}
 
-    Charge(const Charge &other) : QVector3D(other), value_(other.value_) {}
+    Charge() : Charge(Vector3D<T>(), 0.0) {}
+
+    Charge(const Charge &other) : Vector3D<T>(other), value_(other.value_) {}
 
     Charge &operator=(const Charge &other) {
-        QVector3D::operator=(other);
+        Vector3D<T>::operator=(other);
         value_ = other.value_;
         return *this;
     }
 
-    inline float value() const {
+    inline T value() const {
         return value_;
     }
 
-    inline void setValue(const float &value) {
+    inline void setValue(const T &value) {
         value_ = value;
     }
 
-    inline float valueAndGradientAt(const QVector3D &pos, QVector3D &gradient) const {
-        QVector3D disp = pos - *(static_cast<const QVector3D *>(this));
-        float radius2 = inlinemath::lengthSquared(disp);
-        float value = value_ / radius2;
-        gradient = -2.0 * value * (disp / radius2);
+    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
+        Vector3D<T> disp = pos - *(static_cast<const Vector3D<T> *>(this));
+        T radius2 = disp.lengthSquared();
+        T value = value_ / radius2;
+        gradient = (T) -2.0 * value * (disp / radius2);
         return value;
     }
 
-    inline QVector3D pos() const {
+    inline Vector3D<T> pos() const {
         return *this;
     }
 
-    inline void setPos(const QVector3D &pos) {
+    inline void setPos(const Vector3D<T> &pos) {
         *this = Charge(pos, value_);
     }
 
 private:
-    float value_;
+    T value_;
 };
 
 
-class PotentialField : public QVector<Charge>, public ScalarField<PotentialField> {
+template <class T>
+class PotentialField : public QVector<Charge<T>>, public ScalarField<PotentialField<T>, T> {
 public:
+    typedef Charge<T> ChargeType;
+
     PotentialField() {}
     virtual ~PotentialField() {}
 
-    inline float valueAndGradientAt(const QVector3D &pos, QVector3D &gradient) const {
-        float value = 0.0;
-        QVector3D g, lg;
-        const Charge *charges = this->constData();
-        int length = size();
+    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
+        T value = 0.0;
+        Vector3D<T> g, lg;
+        const Charge<T> *charges = this->constData();
+        int length = QVector<Charge<T>>::size();
         for (int i = 0; i < length; i++) {
-            value += charges[i].valueAndGradientAt(pos, lg);
+            value += charges[i].fieldAt(pos, lg);
             g += lg;
         }
         gradient = g;
@@ -87,17 +96,21 @@ public:
 };
 
 
-
+template <class T>
 class DrawingArea : public QWidget {
 public:
-    DrawingArea(const PotentialField &field, QWidget *parent = nullptr) : QWidget(parent),
+    typedef T FloatType;
+    typedef PotentialField<T> FieldType;
+
+    DrawingArea(const FieldType &field, QWidget *parent = nullptr) : QWidget(parent),
         field_(field),
+        image_(new QImage(size(), QImage::Format_ARGB32)),
         mouse_(0, 0),
         mousePressed_(false) {
-        setFrustum(2.0, 100.0, -2.0, 75.0);
+        setFrustum(2.0, 50.0, -2.0, 37.5);
     }
 
-    void setFrustum(float front, float frontZoom, float back, float backZoom) {
+    void setFrustum(T front, T frontZoom, T back, T backZoom) {
         front_ = front;
         frontZoom_ = frontZoom;
         back_ = back;
@@ -122,42 +135,48 @@ protected:
 //            c.setY(transformed.y());
         }
 
-        QVector3D lightSource(0.0, 0.0, 50.0);
-        QPen pen(p.pen());
+        Vector3D<T> lightSource(0.0, 0.0, 50.0);
 
         QTime time;
         time.start();
 
+        uchar *line = image_->bits();
+        int bytesPerLine = image_->bytesPerLine();
+        Ray *rays = rays_.get();
+
+        Vector3D<T> i;
+        Vector3D<T> normal;
+        Vector3D<T> lightVec;
+
         int w = size().width();
         int h = size().height();
-        Ray *rays = rays_.get();
-        int index = 0;
+
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                Ray &r = rays[index++];
+                Ray &r = rays[y * w + x];
+                uint c = 0;
 
-                QVector3D i;
-                QVector3D normal;
                 if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
-                    inlinemath::normalize(normal);
-                    QVector3D lightVec(i - lightSource);
-                    inlinemath::normalize(lightVec);
-                    float light = inlinemath::dotProduct(normal, lightVec);
-                    pen.setColor(QColor::fromRgbF(light, light, light));
+                    normal.normalize();
+                    lightVec = i - lightSource;
+                    lightVec.normalize();
+                    T light = Vector3D<T>::dotProduct(normal, lightVec);
+                    c = 0xff & (uint) (light * 255);
                 }
-                else {
-                    pen.setColor(Qt::black);
-                }
-                p.setPen(pen);
-                p.drawPoint(x, y);
+                ((uint *) line)[x] = qRgb(c, c, c);
             }
+            line += bytesPerLine;
         }
+
+        p.drawImage(0, 0, *image_.get());
+
         qDebug() << __func__ << time.elapsed() << "ms";
     }
 
     void resizeEvent(QResizeEvent *event) {
         (void) event;
         updateTransforms();
+        image_.reset(new QImage(size(), QImage::Format_ARGB32));
     }
 
     void mousePressEvent(QMouseEvent *me) override {
@@ -169,7 +188,6 @@ protected:
     void mouseMoveEvent(QMouseEvent *me) override {
         qDebug() << __func__;
         mouse_ = me->pos();
-//        polygons.clear();
         update();
     }
 
@@ -180,12 +198,12 @@ protected:
     }
 
 private:
-    const PotentialField &field_;
+    const FieldType &field_;
 
-    float front_;
-    float frontZoom_;
-    float back_;
-    float backZoom_;
+    T front_;
+    T frontZoom_;
+    T back_;
+    T backZoom_;
 
     QTransform frontTransform_;
     QTransform frontTransformInverted_;
@@ -193,11 +211,13 @@ private:
     QTransform backTransformInverted_;
 
     struct Ray {
-        QVector3D p;
-        QVector3D direction;
+        Vector3D<T> p;
+        Vector3D<T> direction;
         float length;
     };
     std::unique_ptr<Ray> rays_;
+
+    std::unique_ptr<QImage> image_;
 
     QPoint mouse_;
     bool mousePressed_;
@@ -221,13 +241,13 @@ private:
                 Ray &r = rays[index++];
 
                 QPointF pos(x, y);
-                QVector3D front(frontTransformInverted_.map(pos));
-                front.setZ(front_);
-                QVector3D back(backTransformInverted_.map(pos));
-                back.setZ(back_);
+                QPointF f = frontTransformInverted_.map(pos);
+                QPointF b = backTransformInverted_.map(pos);
+                Vector3D<T> front((T) f.x(), (T) f.y(), front_);
+                Vector3D<T> back((T) b.x(), (T) b.y(), back_);
 
-                QVector3D direction(back - front);
-                float length = inlinemath::length(direction);
+                Vector3D<T> direction = back - front;
+                T length = direction.length();
                 direction /= length;
 
                 r.p = front;
@@ -247,15 +267,16 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
 
     // init charges
-    PotentialField field;
-    field << Charge(QVector3D(0.0, 2.0, 0.0), 1.0);
-    field << Charge(QVector3D(-2.0, 0.0, 0.0), 1.0);
-    field << Charge(QVector3D(2.0, 0.0, 0.0), 1.0);
-    field << Charge(QVector3D(0.0, -2.0, 0.0), 1.0);
+    typedef PotentialField<float> Field;
+    Field field;
+    field << Field::ChargeType(0.0, 2.0, 0.0, 1.0);
+    field << Field::ChargeType(-2.0, 0.0, 0.0, 1.0);
+    field << Field::ChargeType(2.0, 0.0, 0.0, 1.0);
+    field << Field::ChargeType(0.0, -2.0, 0.0, 1.0);
 
     // gui
-    DrawingArea da(field);
-    da.resize(1280, 720);
+    DrawingArea<Field::FloatType> da(field);
+    da.resize(640, 360);
     da.show();
 
     return a.exec();
