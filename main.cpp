@@ -12,23 +12,21 @@
 #include <QTimer>
 #include <QWidget>
 
-#include <vector>
+#include <memory>
 #include <list>
+#include <vector>
+#include <typeinfo>
 
 #include <math.h>
 
 #include <QDebug>
 
+#include "inlinemath.h"
 #include "scalarfield.h"
 
-static const qreal isovalue = 1.0;
-static const qreal max_segment_length = 0.1;
-static const qreal epsilon = 0.001;
-
-
-class Charge : public QVector3D, public ScalarField {
+class Charge : public QVector3D, public ScalarField<Charge> {
 public:
-    Charge(const QVector3D &pos, const qreal &value) : QVector3D(pos), value_(value) {}
+    Charge(const QVector3D &pos, const float &value) : QVector3D(pos), value_(value) {}
 
     Charge() : Charge(QVector3D(), 0.0) {}
 
@@ -40,57 +38,51 @@ public:
         return *this;
     }
 
-    qreal value() const {
+    inline float value() const {
         return value_;
     }
 
-    void setValue(const qreal &value) {
+    inline void setValue(const float &value) {
         value_ = value;
     }
 
-    qreal valueAt(const QVector3D &pos) const override {
-        QVector3D disp(pos - *this);
-        return value_ / QVector3D::dotProduct(disp, disp);
+    inline float valueAndGradientAt(const QVector3D &pos, QVector3D &gradient) const {
+        QVector3D disp = pos - *(static_cast<const QVector3D *>(this));
+        float radius2 = inlinemath::lengthSquared(disp);
+        float value = value_ / radius2;
+        gradient = -2.0 * value * (disp / radius2);
+        return value;
     }
 
-    QVector3D gradientAt(const QVector3D &pos) const override {
-        QVector3D disp(pos - *this);
-        qreal radius = sqrt(QVector3D::dotProduct(disp, disp));
-        return -2.0 * value_ * (disp.normalized() / (radius * radius * radius));
-    }
-
-    QVector3D pos() const {
+    inline QVector3D pos() const {
         return *this;
     }
 
-    void setPos(const QVector3D &pos) {
+    inline void setPos(const QVector3D &pos) {
         *this = Charge(pos, value_);
     }
 
 private:
-    qreal value_;
+    float value_;
 };
 
 
-class PotentialField : public QList<Charge>, public ScalarField {
+class PotentialField : public QVector<Charge>, public ScalarField<PotentialField> {
 public:
     PotentialField() {}
     virtual ~PotentialField() {}
 
-    qreal valueAt(const QVector3D &pos) const override {
-        qreal value = 0.0;
-        std::for_each(this->begin(), this->end(), [=, &value](const Charge &charge) {
-            value += charge.valueAt(pos);
-        });
+    inline float valueAndGradientAt(const QVector3D &pos, QVector3D &gradient) const {
+        float value = 0.0;
+        QVector3D g, lg;
+        const Charge *charges = this->constData();
+        int length = size();
+        for (int i = 0; i < length; i++) {
+            value += charges[i].valueAndGradientAt(pos, lg);
+            g += lg;
+        }
+        gradient = g;
         return value;
-    }
-
-    inline QVector3D gradientAt(const QVector3D &pos) const override {
-        QVector3D gradient;
-        std::for_each(this->begin(), this->end(), [=, &gradient](const Charge &charge) {
-            gradient += charge.gradientAt(pos);
-        });
-        return gradient;
     }
 };
 
@@ -98,14 +90,14 @@ public:
 
 class DrawingArea : public QWidget {
 public:
-    DrawingArea(const ScalarField &field, QWidget *parent = nullptr) : QWidget(parent),
+    DrawingArea(const PotentialField &field, QWidget *parent = nullptr) : QWidget(parent),
         field_(field),
         mouse_(0, 0),
         mousePressed_(false) {
         setFrustum(2.0, 100.0, -2.0, 75.0);
     }
 
-    void setFrustum(qreal front, qreal frontZoom, qreal back, qreal backZoom) {
+    void setFrustum(float front, float frontZoom, float back, float backZoom) {
         front_ = front;
         frontZoom_ = frontZoom;
         back_ = back;
@@ -133,29 +125,26 @@ protected:
         QVector3D lightSource(0.0, 0.0, 50.0);
         QPen pen(p.pen());
 
-        QSize sz(size());
         QTime time;
         time.start();
-        for (int x = 0; x < sz.width(); x++) {
-            for (int y = 0; y < sz.height(); y++) {
-                QPointF pos(x, y);
-                QVector3D front(frontTransformInverted_.map(pos));
-                front.setZ(front_);
-                QVector3D back(backTransformInverted_.map(pos));
-                back.setZ(back_);
+
+        int w = size().width();
+        int h = size().height();
+        Ray *rays = rays_.get();
+        int index = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                Ray &r = rays[index++];
 
                 QVector3D i;
-                if (field_.intersect(front, back, i)) {
-                    QVector3D norm = field_.gradientAt(i);
-                    norm.normalize();
+                QVector3D normal;
+                if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
+                    inlinemath::normalize(normal);
                     QVector3D lightVec(i - lightSource);
-                    lightVec.normalize();
-                    qreal light = QVector3D::dotProduct(norm, lightVec);
+                    inlinemath::normalize(lightVec);
+                    float light = inlinemath::dotProduct(normal, lightVec);
                     pen.setColor(QColor::fromRgbF(light, light, light));
                 }
-//                if ((x + y) % 2) {
-//                    pen.setColor(Qt::white);
-//                }
                 else {
                     pen.setColor(Qt::black);
                 }
@@ -163,7 +152,7 @@ protected:
                 p.drawPoint(x, y);
             }
         }
-        qDebug() << time.elapsed() << "ms";
+        qDebug() << __func__ << time.elapsed() << "ms";
     }
 
     void resizeEvent(QResizeEvent *event) {
@@ -191,26 +180,67 @@ protected:
     }
 
 private:
-    const ScalarField &field_;
-    qreal front_;
-    qreal frontZoom_;
-    qreal back_;
-    qreal backZoom_;
+    const PotentialField &field_;
+
+    float front_;
+    float frontZoom_;
+    float back_;
+    float backZoom_;
+
     QTransform frontTransform_;
     QTransform frontTransformInverted_;
     QTransform backTransform_;
     QTransform backTransformInverted_;
+
+    struct Ray {
+        QVector3D p;
+        QVector3D direction;
+        float length;
+    };
+    std::unique_ptr<Ray> rays_;
+
     QPoint mouse_;
     bool mousePressed_;
 
     void updateTransforms() {
-        QSizeF s(size() / 2.0);
-        frontTransform_ = QTransform::fromTranslate(s.width(), s.height()).scale(frontZoom_, -frontZoom_);
+        QTime time;
+        time.start();
+
+        QSize s(size());
+        int w = s.width();
+        int h = s.height();
+        frontTransform_ = QTransform::fromTranslate(w / 2, h / 2).scale(frontZoom_, -frontZoom_);
         frontTransformInverted_ = frontTransform_.inverted();
-        backTransform_ = QTransform::fromTranslate(s.width(), s.height()).scale(backZoom_, -backZoom_);
+        backTransform_ = QTransform::fromTranslate(w / 2, h / 2).scale(backZoom_, -backZoom_);
         backTransformInverted_ = backTransform_.inverted();
+
+        Ray *rays = new Ray[w * h];
+        int index = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                Ray &r = rays[index++];
+
+                QPointF pos(x, y);
+                QVector3D front(frontTransformInverted_.map(pos));
+                front.setZ(front_);
+                QVector3D back(backTransformInverted_.map(pos));
+                back.setZ(back_);
+
+                QVector3D direction(back - front);
+                float length = inlinemath::length(direction);
+                direction /= length;
+
+                r.p = front;
+                r.direction = direction;
+                r.length = length;
+            }
+        }
+        rays_.reset(rays);
+
+        qDebug() << __func__ << time.elapsed() << "ms";
     }
 };
+
 
 int main(int argc, char *argv[])
 {

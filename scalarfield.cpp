@@ -1,3 +1,4 @@
+#if 0
 #include <QDebug>
 
 #include <math.h>
@@ -82,3 +83,4 @@ bool ScalarField::intersect(const QVector3D &p1, const QVector3D &p2, QVector3D 
 
     return false;
 }
+#endif
