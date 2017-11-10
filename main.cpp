@@ -24,6 +24,7 @@
 
 #include "inlinemath.h"
 #include "scalarfield.h"
+#include "renderer.h"
 
 using namespace inlinemath;
 
@@ -34,7 +35,7 @@ public:
 
     Charge(const Vector3D<T> &pos, T value) : Vector3D<T>(pos), value_(value) {}
 
-    Charge() : Charge(Vector3D<T>(), 0.0) {}
+    Charge() : Charge(Vector3D<T>(), 1.0) {}
 
     Charge(const Charge &other) : Vector3D<T>(other), value_(other.value_) {}
 
@@ -95,7 +96,7 @@ public:
     }
 };
 
-
+#if 0
 template <class T>
 class DrawingArea : public QWidget {
 public:
@@ -104,9 +105,7 @@ public:
 
     DrawingArea(const FieldType &field, QWidget *parent = nullptr) : QWidget(parent),
         field_(field),
-        image_(new QImage(size(), QImage::Format_ARGB32)),
-        mouse_(0, 0),
-        mousePressed_(false) {
+        image_(new QImage(size(), QImage::Format_ARGB32)) {
         setFrustum(2.0, 50.0, -2.0, 37.5);
     }
 
@@ -123,17 +122,6 @@ public:
 protected:
     void paintEvent(QPaintEvent *pe) override {
         (void) pe;
-
-        QPainter p(this);
-
-        if (mousePressed_) {
-            // move first charge
-//            Charge &c = charges.front();
-//            QPointF transformed = p.transform().inverted().map(QPointF(mouse_));
-//            qDebug() << mouse_ << transformed;
-//            c.setX(transformed.x());
-//            c.setY(transformed.y());
-        }
 
         Vector3D<T> lightSource(0.0, 0.0, 50.0);
 
@@ -168,6 +156,7 @@ protected:
             line += bytesPerLine;
         }
 
+        QPainter p(this);
         p.drawImage(0, 0, *image_.get());
 
         qDebug() << __func__ << time.elapsed() << "ms";
@@ -177,24 +166,6 @@ protected:
         (void) event;
         updateTransforms();
         image_.reset(new QImage(size(), QImage::Format_ARGB32));
-    }
-
-    void mousePressEvent(QMouseEvent *me) override {
-        qDebug() << __func__;
-        mousePressed_ = true;
-        mouseMoveEvent(me); // dirty
-    }
-
-    void mouseMoveEvent(QMouseEvent *me) override {
-        qDebug() << __func__;
-        mouse_ = me->pos();
-        update();
-    }
-
-    void mouseReleaseEvent(QMouseEvent *me) override {
-        (void) me;
-        qDebug() << __func__;
-        mousePressed_ = false;
     }
 
 private:
@@ -218,9 +189,6 @@ private:
     std::unique_ptr<Ray> rays_;
 
     std::unique_ptr<QImage> image_;
-
-    QPoint mouse_;
-    bool mousePressed_;
 
     void updateTransforms() {
         QTime time;
@@ -260,6 +228,40 @@ private:
         qDebug() << __func__ << time.elapsed() << "ms";
     }
 };
+#endif
+
+class DrawingArea : public QWidget {
+public:
+
+    DrawingArea(Renderer &renderer, QWidget *parent = nullptr) : QWidget(parent),
+        renderer_(renderer),
+        image_(new QImage(size(), QImage::Format_ARGB32)) {
+    }
+
+protected:
+    void paintEvent(QPaintEvent *pe) override {
+        (void) pe;
+
+        qDebug() << __func__ << size();
+
+        renderer_.render(image_.get());
+
+        QPainter p(this);
+        p.drawImage(0, 0, *image_.get());
+    }
+
+    void resizeEvent(QResizeEvent *event) {
+        (void) event;
+
+        qDebug() << __func__ << size();
+
+        image_.reset(new QImage(size(), QImage::Format_ARGB32));
+    }
+
+private:
+    Renderer &renderer_;
+    std::unique_ptr<QImage> image_;
+};
 
 
 int main(int argc, char *argv[])
@@ -273,9 +275,14 @@ int main(int argc, char *argv[])
     field << Field::ChargeType(-2.0, 0.0, 0.0, 1.0);
     field << Field::ChargeType(2.0, 0.0, 0.0, 1.0);
     field << Field::ChargeType(0.0, -2.0, 0.0, 1.0);
+//    field << Field::ChargeType();
+//    field << Field::ChargeType();
+//    field << Field::ChargeType();
+//    field << Field::ChargeType();
 
     // gui
-    DrawingArea<Field::FloatType> da(field);
+    FieldRenderer<Field, Field::FloatType> renderer(field);
+    DrawingArea da(renderer);
     da.resize(640, 360);
     da.show();
 

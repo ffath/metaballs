@@ -16,4 +16,5 @@ SOURCES += main.cpp
 
 HEADERS += \
     scalarfield.h \
-    inlinemath.h
+    inlinemath.h \
+    renderer.h
