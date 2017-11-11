@@ -1,7 +1,11 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 #include <QImage>
+#include <QSemaphore>
+#include <QThread>
+#include <QVector>
 
+#include <functional>
 #include <memory>
 
 #include "scalarfield.h"
@@ -11,14 +15,50 @@ using namespace inlinemath;
 
 class Renderer {
 public:
+    virtual ~Renderer() {
+    }
+
     virtual void render(QImage *image) = 0;
+};
+
+
+class WorkerThread : public QThread {
+public:
+    WorkerThread(int threadNumber, const std::function<void(int)> &func) :
+        threadNumber_(threadNumber),
+        func_(func) {
+    }
+
+protected:
+    void run() {
+        func_(threadNumber_);
+    }
+private:
+    int threadNumber_;
+    const std::function<void(int)> func_;
 };
 
 template <class F, class T>
 class FieldRenderer : public Renderer {
 public:
-    FieldRenderer(const F &field) : field_(field) {
+    FieldRenderer(const F &field) : field_(field), image_(nullptr) {
         setFrustum(2.0, 50.0, -2.0, 37.5);
+
+        threadCount_ = QThread::idealThreadCount();
+        if (threadCount_ == -1) {
+            threadCount_ = 1;
+        }
+
+        for (int i = 0; i < threadCount_; i++) {
+            QThread *worker = new WorkerThread(i, std::bind(&FieldRenderer::process, this, std::placeholders::_1));
+            worker->start();
+        }
+    }
+
+    ~FieldRenderer() override {
+        int threadCount = threadCount_;
+        threadCount_ = 0;
+        semaphoreBegin_.release(threadCount);
     }
 
     void setFrustum(T front, T frontZoom, T back, T backZoom) {
@@ -38,39 +78,13 @@ public:
             updateRays();
         }
 
-        // temp: set light sources
-        Vector3D<T> lightSource(0.0, 0.0, 50.0);
-
         QTime time;
         time.start();
 
-        uchar *line = image->bits();
-        int bytesPerLine = image->bytesPerLine();
-        Ray *rays = rays_.get();
-
-        Vector3D<T> i;
-        Vector3D<T> normal;
-        Vector3D<T> lightVec;
-
-        int w = size_.width();
-        int h = size_.height();
-
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                Ray &r = rays[y * w + x];
-                uint c = 0;
-
-                if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
-                    normal.normalize();
-                    lightVec = i - lightSource;
-                    lightVec.normalize();
-                    T light = Vector3D<T>::dotProduct(normal, lightVec);
-                    c = 0xff & (uint) (light * 255);
-                }
-                ((uint *) line)[x] = qRgb(c, c, c);
-            }
-            line += bytesPerLine;
-        }
+        image_ = image;
+        semaphoreBegin_.release(threadCount_);
+        semaphoreEnd_.acquire(threadCount_);
+        image_ = nullptr;
 
         qDebug() << __func__ << time.elapsed() << "ms";
     }
@@ -99,6 +113,14 @@ private:
 
     // last image size
     QSize size_;
+
+    // temporary pointer to image used during rendering
+    QImage *image_;
+
+    // threading
+    int threadCount_;
+    QSemaphore semaphoreBegin_;
+    QSemaphore semaphoreEnd_;
 
     // update transformation matrices
     void updateTransforms() {
@@ -142,6 +164,57 @@ private:
         rays_.reset(rays);
 
         qDebug() << __func__ << time.elapsed() << "ms";
+    }
+
+    void process(int threadNumber) {
+        qDebug() << "thread" << threadNumber << "in";
+
+        // temp: set light sources elsewhere
+        Vector3D<T> lightSource(0.0, 0.0, 50.0);
+
+        while (true) {
+            semaphoreBegin_.acquire();
+
+            if (threadCount_ == 0)
+                break;
+
+            uchar *line = image_->bits();
+            int bytesPerLine = image_->bytesPerLine();
+            Ray *rays = rays_.get();
+
+            Vector3D<T> i;
+            Vector3D<T> normal;
+            Vector3D<T> lightVec;
+
+            int w = size_.width();
+            int h = size_.height();
+
+            // my range
+            int y1 = (h /threadCount_) * threadNumber;
+            int y2 = (h / threadCount_) * (threadNumber + 1);
+            line += y1 * bytesPerLine;
+
+            for (int y = y1; y < y2; y++) {
+                for (int x = 0; x < w; x++) {
+                    Ray &r = rays[y * w + x];
+                    uint c = 0;
+
+                    if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
+                        normal.normalize();
+                        lightVec = i - lightSource;
+                        lightVec.normalize();
+                        T light = Vector3D<T>::dotProduct(normal, lightVec);
+                        c = 0xff & (uint) (light * 255);
+                    }
+                    ((uint *) line)[x] = qRgb(c, c, c);
+                }
+                line += bytesPerLine;
+            }
+
+            semaphoreEnd_.release();
+        }
+
+        qDebug() << "thread" << threadNumber << "out";
     }
 };
 #endif // RENDERER_H

@@ -96,139 +96,6 @@ public:
     }
 };
 
-#if 0
-template <class T>
-class DrawingArea : public QWidget {
-public:
-    typedef T FloatType;
-    typedef PotentialField<T> FieldType;
-
-    DrawingArea(const FieldType &field, QWidget *parent = nullptr) : QWidget(parent),
-        field_(field),
-        image_(new QImage(size(), QImage::Format_ARGB32)) {
-        setFrustum(2.0, 50.0, -2.0, 37.5);
-    }
-
-    void setFrustum(T front, T frontZoom, T back, T backZoom) {
-        front_ = front;
-        frontZoom_ = frontZoom;
-        back_ = back;
-        backZoom_ = backZoom;
-
-        updateTransforms();
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent *pe) override {
-        (void) pe;
-
-        Vector3D<T> lightSource(0.0, 0.0, 50.0);
-
-        QTime time;
-        time.start();
-
-        uchar *line = image_->bits();
-        int bytesPerLine = image_->bytesPerLine();
-        Ray *rays = rays_.get();
-
-        Vector3D<T> i;
-        Vector3D<T> normal;
-        Vector3D<T> lightVec;
-
-        int w = size().width();
-        int h = size().height();
-
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                Ray &r = rays[y * w + x];
-                uint c = 0;
-
-                if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
-                    normal.normalize();
-                    lightVec = i - lightSource;
-                    lightVec.normalize();
-                    T light = Vector3D<T>::dotProduct(normal, lightVec);
-                    c = 0xff & (uint) (light * 255);
-                }
-                ((uint *) line)[x] = qRgb(c, c, c);
-            }
-            line += bytesPerLine;
-        }
-
-        QPainter p(this);
-        p.drawImage(0, 0, *image_.get());
-
-        qDebug() << __func__ << time.elapsed() << "ms";
-    }
-
-    void resizeEvent(QResizeEvent *event) {
-        (void) event;
-        updateTransforms();
-        image_.reset(new QImage(size(), QImage::Format_ARGB32));
-    }
-
-private:
-    const FieldType &field_;
-
-    T front_;
-    T frontZoom_;
-    T back_;
-    T backZoom_;
-
-    QTransform frontTransform_;
-    QTransform frontTransformInverted_;
-    QTransform backTransform_;
-    QTransform backTransformInverted_;
-
-    struct Ray {
-        Vector3D<T> p;
-        Vector3D<T> direction;
-        float length;
-    };
-    std::unique_ptr<Ray> rays_;
-
-    std::unique_ptr<QImage> image_;
-
-    void updateTransforms() {
-        QTime time;
-        time.start();
-
-        QSize s(size());
-        int w = s.width();
-        int h = s.height();
-        frontTransform_ = QTransform::fromTranslate(w / 2, h / 2).scale(frontZoom_, -frontZoom_);
-        frontTransformInverted_ = frontTransform_.inverted();
-        backTransform_ = QTransform::fromTranslate(w / 2, h / 2).scale(backZoom_, -backZoom_);
-        backTransformInverted_ = backTransform_.inverted();
-
-        Ray *rays = new Ray[w * h];
-        int index = 0;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                Ray &r = rays[index++];
-
-                QPointF pos(x, y);
-                QPointF f = frontTransformInverted_.map(pos);
-                QPointF b = backTransformInverted_.map(pos);
-                Vector3D<T> front((T) f.x(), (T) f.y(), front_);
-                Vector3D<T> back((T) b.x(), (T) b.y(), back_);
-
-                Vector3D<T> direction = back - front;
-                T length = direction.length();
-                direction /= length;
-
-                r.p = front;
-                r.direction = direction;
-                r.length = length;
-            }
-        }
-        rays_.reset(rays);
-
-        qDebug() << __func__ << time.elapsed() << "ms";
-    }
-};
-#endif
 
 class DrawingArea : public QWidget {
 public:
@@ -283,7 +150,7 @@ int main(int argc, char *argv[])
     // gui
     FieldRenderer<Field, Field::FloatType> renderer(field);
     DrawingArea da(renderer);
-    da.resize(640, 360);
+    da.resize(640, 480);
     da.show();
 
     return a.exec();
