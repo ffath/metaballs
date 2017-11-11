@@ -204,7 +204,9 @@ private:
                         lightVec = i - lightSource;
                         lightVec.normalize();
                         T light = Vector3D<T>::dotProduct(normal, lightVec);
-                        c = 0xff & (uint) (light * 255);
+                        if (light < 0.0) light = 0.0;
+                        if (light > 1.0) light = 1.0;
+                        c = light * 255;
                     }
                     ((uint *) line)[x] = qRgb(c, c, c);
                 }

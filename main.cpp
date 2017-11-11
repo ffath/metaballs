@@ -13,12 +13,14 @@
 #include <QTimer>
 #include <QWidget>
 
+#include <functional>
 #include <memory>
 #include <list>
 #include <vector>
 #include <typeinfo>
 
 #include <math.h>
+#include <stdlib.h>
 
 #include <QDebug>
 
@@ -34,6 +36,8 @@ public:
     Charge(T x, T y, T z, T value) : Vector3D<T>(x, y, z), value_(value) {}
 
     Charge(const Vector3D<T> &pos, T value) : Vector3D<T>(pos), value_(value) {}
+
+    Charge(T value) : Charge(Vector3D<T>(), value) {}
 
     Charge() : Charge(Vector3D<T>(), 1.0) {}
 
@@ -66,7 +70,7 @@ public:
     }
 
     inline void setPos(const Vector3D<T> &pos) {
-        *this = Charge(pos, value_);
+        Vector3D<T>::operator=(pos);
     }
 
 private:
@@ -131,27 +135,66 @@ private:
 };
 
 
+typedef PotentialField<float> Field;
+
+void animate(Field &field) {
+    static Vector3D<Field::FloatType> *directions = nullptr;
+    int i, size = field.size();
+
+    if (directions == nullptr) {
+        directions = new Vector3D<Field::FloatType>[size];
+        for (i = 0; i < size; i++) {
+            float x = (float) rand() / RAND_MAX;
+            float y = (float) rand() / RAND_MAX;
+//            float z = (float) rand() / RAND_MAX;
+            directions[i] = Vector3D<Field::FloatType>(x / 5.0, y / 5.0, 0.0);
+        }
+    }
+
+    for (i = 0; i < size; i++) {
+        auto pos = field[i].pos();
+        pos += directions[i];
+        if (std::abs(pos.x) > 5.5) {
+            directions[i].x *= -1;
+        }
+        if (std::abs(pos.y) > 3.5) {
+            directions[i].y *= -1;
+        }
+        field[i].setPos(pos);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
     // init charges
-    typedef PotentialField<float> Field;
     Field field;
-    field << Field::ChargeType(0.0, 2.0, 0.0, 1.0);
-    field << Field::ChargeType(-2.0, 0.0, 0.0, 1.0);
-    field << Field::ChargeType(2.0, 0.0, 0.0, 1.0);
-    field << Field::ChargeType(0.0, -2.0, 0.0, 1.0);
-//    field << Field::ChargeType();
-//    field << Field::ChargeType();
-//    field << Field::ChargeType();
-//    field << Field::ChargeType();
+//    field << Field::ChargeType(0.0, 3.0, 0.0, 1.0);
+//    field << Field::ChargeType(-2.0, 0.0, 0.0, 1.0);
+//    field << Field::ChargeType(2.0, 0.0, 0.0, 1.0);
+//    field << Field::ChargeType(0.0, -2.0, 0.0, 1.0);
+    field << Field::ChargeType(1.5);
+    field << Field::ChargeType(1.5);
+    field << Field::ChargeType(1.5);
+    field << Field::ChargeType(1.5);
+    field << Field::ChargeType(1.5);
 
     // gui
     FieldRenderer<Field, Field::FloatType> renderer(field);
     DrawingArea da(renderer);
     da.resize(640, 480);
     da.show();
+
+    // animation
+    QTimer timer;
+    timer.setInterval(0);
+    timer.setSingleShot(false);
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        animate(field);
+        da.update();
+    });
+    timer.start();
 
     return a.exec();
 }
