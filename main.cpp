@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QDebug>
 #include <QImage>
 #include <QLinkedList>
 #include <QList>
@@ -22,7 +23,8 @@
 #include <math.h>
 #include <stdlib.h>
 
-#include <QDebug>
+// SSE2
+#include <emmintrin.h>
 
 #include "inlinemath.h"
 #include "scalarfield.h"
@@ -148,11 +150,11 @@ void animate(PotentialField &field) {
     for (i = 0; i < size; i++) {
         auto pos = field[i].pos();
         pos += directions[i];
-        if (std::abs(pos.x) > 5.5) {
-            directions[i].x *= -1;
+        if (std::abs(pos.x()) > 5.5) {
+            directions[i] *= Vector3D(-1.0f, 1.0f, 1.0f);
         }
-        if (std::abs(pos.y) > 3.5) {
-            directions[i].y *= -1;
+        if (std::abs(pos.y()) > 3.5) {
+            directions[i] *= Vector3D(1.0f, -1.0f, 1.0f);
         }
         field[i].setPos(pos);
     }
@@ -160,7 +162,7 @@ void animate(PotentialField &field) {
 
 int main(int argc, char *argv[])
 {
-    QApplication a(argc, argv);
+    QApplication app(argc, argv);
 
     // init charges
     PotentialField field;
@@ -186,5 +188,5 @@ int main(int argc, char *argv[])
     });
     timer.start();
 
-    return a.exec();
+    return app.exec();
 }
