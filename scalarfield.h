@@ -12,12 +12,10 @@ using namespace inlinemath;
 //#define CLOCK_TIMINGS
 
 
-template <class D, class T>
+template <class D>
 class ScalarField
 {
 public:
-    typedef T FloatType;
-
     ScalarField() :
         intersect_hit_(0),
         intersect_miss_(0),
@@ -44,7 +42,7 @@ public:
         }
     }
 
-    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
+    inline float fieldAt(const Vector3D &pos, Vector3D &gradient) const {
         return static_cast<const D*>(this)->fieldAt(pos, gradient);
     }
 
@@ -52,22 +50,22 @@ public:
     // length -> max length to explore starting from p
     // i -> intersection if any
     // g -> gradient at i
-    inline bool intersect(const Vector3D<T> &p, const Vector3D<T> &direction, T length, Vector3D<T> &i, Vector3D<T> &g) const {
+    inline bool intersect(const Vector3D &p, const Vector3D &direction, float length, Vector3D &i, Vector3D &g) const {
 #ifdef CLOCK_TIMINGS
         struct timespec t0, t;
         clock_gettime(CLOCK_REALTIME, &t0);
 #endif
-        T walked = 0.0;
+        float walked = 0.0;
 
         // metrics
         int iterations = 0;
 
-        Vector3D<T> pos = p;
-        Vector3D<T> gradient;
-        T delta;
+        Vector3D pos = p;
+        Vector3D gradient;
+        float delta;
         while (std::abs(delta = (isovalue - fieldAt(pos, gradient))) > epsilon && walked < length && iterations < max_iterations) {
-            T gradval = std::abs(Vector3D<T>::dotProduct(gradient, direction)); // gradient value projected on direction
-            T disp = delta / gradval;
+            float gradval = std::abs(Vector3D::dotProduct(gradient, direction)); // gradient value projected on direction
+            float disp = delta / gradval;
             if (std::abs(disp) > step) { // going too fast ?
                 disp = signbit(disp) ? -step : step;
             }
@@ -116,9 +114,9 @@ public:
 
 private:
     // constants
-    static constexpr T isovalue = 1.0;
-    static constexpr T epsilon = 0.001;
-    static constexpr T step = 0.5;
+    static constexpr float isovalue = 1.0;
+    static constexpr float epsilon = 0.001;
+    static constexpr float step = 0.5;
     static constexpr int max_iterations = 20;
 
     // metrics

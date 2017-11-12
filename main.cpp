@@ -30,67 +30,63 @@
 
 using namespace inlinemath;
 
-template <class T>
-class Charge : public Vector3D<T>, public ScalarField<Charge<T>, T> {
+class Charge : public Vector3D, public ScalarField<Charge> {
 public:
-    Charge(T x, T y, T z, T value) : Vector3D<T>(x, y, z), value_(value) {}
+    Charge(float x, float y, float z, float value) : Vector3D(x, y, z), value_(value) {}
 
-    Charge(const Vector3D<T> &pos, T value) : Vector3D<T>(pos), value_(value) {}
+    Charge(const Vector3D &pos, float value) : Vector3D(pos), value_(value) {}
 
-    Charge(T value) : Charge(Vector3D<T>(), value) {}
+    Charge(float value) : Charge(Vector3D(), value) {}
 
-    Charge() : Charge(Vector3D<T>(), 1.0) {}
+    Charge() : Charge(Vector3D(), 1.0f) {}
 
-    Charge(const Charge &other) : Vector3D<T>(other), value_(other.value_) {}
+    Charge(const Charge &other) : Vector3D(other), value_(other.value_) {}
 
     Charge &operator=(const Charge &other) {
-        Vector3D<T>::operator=(other);
+        Vector3D::operator=(other);
         value_ = other.value_;
         return *this;
     }
 
-    inline T value() const {
+    inline float value() const {
         return value_;
     }
 
-    inline void setValue(const T &value) {
+    inline void setValue(const float &value) {
         value_ = value;
     }
 
-    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
-        Vector3D<T> disp = pos - *(static_cast<const Vector3D<T> *>(this));
-        T radius2 = disp.lengthSquared();
-        T value = value_ / radius2;
-        gradient = (T) -2.0 * value * (disp / radius2);
+    inline float fieldAt(const Vector3D &pos, Vector3D &gradient) const {
+        Vector3D disp = pos - *(static_cast<const Vector3D *>(this));
+        float radius2 = disp.lengthSquared();
+        float value = value_ / radius2;
+        gradient = (float) -2.0f * value * (disp / radius2);
         return value;
     }
 
-    inline Vector3D<T> pos() const {
+    inline Vector3D pos() const {
         return *this;
     }
 
-    inline void setPos(const Vector3D<T> &pos) {
-        Vector3D<T>::operator=(pos);
+    inline void setPos(const Vector3D &pos) {
+        Vector3D::operator=(pos);
     }
 
 private:
-    T value_;
+    float value_;
 };
 
 
-template <class T>
-class PotentialField : public QVector<Charge<T>>, public ScalarField<PotentialField<T>, T> {
+class PotentialField : public QVector<Charge>, public ScalarField<PotentialField> {
 public:
-    typedef Charge<T> ChargeType;
-
     PotentialField() {}
     virtual ~PotentialField() {}
 
-    inline T fieldAt(const Vector3D<T> &pos, Vector3D<T> &gradient) const {
-        T value = 0.0;
-        Vector3D<T> g, lg;
-        const Charge<T> *charges = this->constData();
-        int length = QVector<Charge<T>>::size();
+    inline float fieldAt(const Vector3D &pos, Vector3D &gradient) const {
+        float value = 0.0;
+        Vector3D g, lg;
+        const Charge *charges = this->constData();
+        int length = size();
         for (int i = 0; i < length; i++) {
             value += charges[i].fieldAt(pos, lg);
             g += lg;
@@ -135,19 +131,17 @@ private:
 };
 
 
-typedef PotentialField<float> Field;
-
-void animate(Field &field) {
-    static Vector3D<Field::FloatType> *directions = nullptr;
+void animate(PotentialField &field) {
+    static Vector3D *directions = nullptr;
     int i, size = field.size();
 
     if (directions == nullptr) {
-        directions = new Vector3D<Field::FloatType>[size];
+        directions = new Vector3D[size];
         for (i = 0; i < size; i++) {
             float x = (float) rand() / RAND_MAX;
             float y = (float) rand() / RAND_MAX;
 //            float z = (float) rand() / RAND_MAX;
-            directions[i] = Vector3D<Field::FloatType>(x / 5.0, y / 5.0, 0.0);
+            directions[i] = Vector3D(x / 5.0, y / 5.0, 0.0);
         }
     }
 
@@ -169,19 +163,15 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
 
     // init charges
-    Field field;
-//    field << Field::ChargeType(0.0, 3.0, 0.0, 1.0);
-//    field << Field::ChargeType(-2.0, 0.0, 0.0, 1.0);
-//    field << Field::ChargeType(2.0, 0.0, 0.0, 1.0);
-//    field << Field::ChargeType(0.0, -2.0, 0.0, 1.0);
-    field << Field::ChargeType(1.5);
-    field << Field::ChargeType(1.5);
-    field << Field::ChargeType(1.5);
-    field << Field::ChargeType(1.5);
-    field << Field::ChargeType(1.5);
+    PotentialField field;
+    field << Charge(1.5);
+    field << Charge(1.5);
+    field << Charge(1.5);
+    field << Charge(1.5);
+    field << Charge(1.5);
 
     // gui
-    FieldRenderer<Field, Field::FloatType> renderer(field);
+    FieldRenderer<PotentialField> renderer(field);
     DrawingArea da(renderer);
     da.resize(640, 480);
     da.show();

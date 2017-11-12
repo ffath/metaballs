@@ -38,7 +38,7 @@ private:
     const std::function<void(int)> func_;
 };
 
-template <class F, class T>
+template <class F>
 class FieldRenderer : public Renderer {
 public:
     FieldRenderer(const F &field) : field_(field), image_(nullptr) {
@@ -61,7 +61,7 @@ public:
         semaphoreBegin_.release(threadCount);
     }
 
-    void setFrustum(T front, T frontZoom, T back, T backZoom) {
+    void setFrustum(float front, float frontZoom, float back, float backZoom) {
         front_ = front;
         frontZoom_ = frontZoom;
         back_ = back;
@@ -92,10 +92,10 @@ public:
 private:
     const F &field_;
 
-    T front_;
-    T frontZoom_;
-    T back_;
-    T backZoom_;
+    float front_;
+    float frontZoom_;
+    float back_;
+    float backZoom_;
 
     QTransform frontTransform_;
     QTransform frontTransformInverted_;
@@ -103,9 +103,9 @@ private:
     QTransform backTransformInverted_;
 
     struct Ray {
-        Vector3D<T> p;
-        Vector3D<T> direction;
-        T length;
+        Vector3D p;
+        Vector3D direction;
+        float length;
     };
 
     // precalculated rays
@@ -149,11 +149,11 @@ private:
                 QPointF pos(x, y);
                 QPointF f = frontTransformInverted_.map(pos);
                 QPointF b = backTransformInverted_.map(pos);
-                Vector3D<T> front((T) f.x(), (T) f.y(), front_);
-                Vector3D<T> back((T) b.x(), (T) b.y(), back_);
+                Vector3D front(f.x(), f.y(), front_);
+                Vector3D back(b.x(), b.y(), back_);
 
-                Vector3D<T> direction = back - front;
-                T length = direction.length();
+                Vector3D direction = back - front;
+                float length = direction.length();
                 direction /= length;
 
                 r.p = front;
@@ -170,7 +170,7 @@ private:
         qDebug() << "thread" << threadNumber << "in";
 
         // temp: set light sources elsewhere
-        Vector3D<T> lightSource(0.0, 0.0, 50.0);
+        Vector3D lightSource(0.0, 0.0, 50.0);
 
         while (true) {
             semaphoreBegin_.acquire();
@@ -182,15 +182,15 @@ private:
             int bytesPerLine = image_->bytesPerLine();
             Ray *rays = rays_.get();
 
-            Vector3D<T> i;
-            Vector3D<T> normal;
-            Vector3D<T> lightVec;
+            Vector3D i;
+            Vector3D normal;
+            Vector3D lightVec;
 
             int w = size_.width();
             int h = size_.height();
 
             // my range
-            int y1 = (h /threadCount_) * threadNumber;
+            int y1 = (h / threadCount_) * threadNumber;
             int y2 = (h / threadCount_) * (threadNumber + 1);
             line += y1 * bytesPerLine;
 
@@ -203,7 +203,7 @@ private:
                         normal.normalize();
                         lightVec = i - lightSource;
                         lightVec.normalize();
-                        T light = Vector3D<T>::dotProduct(normal, lightVec);
+                        float light = Vector3D::dotProduct(normal, lightVec);
                         if (light < 0.0) light = 0.0;
                         if (light > 1.0) light = 1.0;
                         c = light * 255;

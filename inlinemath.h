@@ -3,132 +3,109 @@
 
 namespace inlinemath {
 
-template <class T>
 class Vector3D {
 public:
-    typedef T Type;
-
-    T x;
-    T y;
-    T z;
+    float x;
+    float y;
+    float z;
 
     Vector3D();
-    Vector3D(T xx, T yy, T zz);
+    Vector3D(float xx, float yy, float zz);
     Vector3D(const Vector3D &o);
 
     Vector3D &operator=(const Vector3D &o);
 
     Vector3D &operator+=(const Vector3D &o);
     Vector3D &operator-=(const Vector3D &o);
-    Vector3D &operator*=(T t);
-    Vector3D &operator/=(T t);
+    Vector3D &operator*=(float t);
+    Vector3D &operator/=(float t);
 
-    T lengthSquared();
-    T length();
+    float lengthSquared();
+    float length();
     void normalize();
 
-    static T dotProduct(const Vector3D &v1, const Vector3D &v2);
+    static float dotProduct(const Vector3D &v1, const Vector3D &v2);
 };
 
-template <class T>
-inline Vector3D<T>::Vector3D() : x(0), y(0), z(0) {
+inline Vector3D::Vector3D() : x(0), y(0), z(0) {
 }
 
-template <class T>
-inline Vector3D<T>::Vector3D(T xx, T yy, T zz) : x(xx), y(yy), z(zz) {
+inline Vector3D::Vector3D(float xx, float yy, float zz) : x(xx), y(yy), z(zz) {
 }
 
-template <class T>
-inline Vector3D<T>::Vector3D(const Vector3D &o) : x(o.x), y(o.y), z(o.z) {
+inline Vector3D::Vector3D(const Vector3D &o) : x(o.x), y(o.y), z(o.z) {
 }
 
-template <class T>
-inline Vector3D<T> &Vector3D<T>::operator=(const Vector3D<T> &o) {
+inline Vector3D &Vector3D::operator=(const Vector3D &o) {
     x = o.x;
     y = o.y;
     z = o.z;
     return *this;
 }
 
-template <class T>
-inline Vector3D<T> &Vector3D<T>::operator+=(const Vector3D<T> &o) {
+inline Vector3D &Vector3D::operator+=(const Vector3D &o) {
     x += o.x;
     y += o.y;
     z += o.z;
     return *this;
 }
 
-template <class T>
-inline Vector3D<T> &Vector3D<T>::operator-=(const Vector3D<T> &o) {
+inline Vector3D &Vector3D::operator-=(const Vector3D &o) {
     x -= o.x;
     y -= o.y;
     z -= o.z;
     return *this;
 }
 
-template <class T>
-inline Vector3D<T> &Vector3D<T>::operator*=(T t) {
+inline Vector3D &Vector3D::operator*=(float t) {
     x *= t;
     y *= t;
     z *= t;
     return *this;
 }
 
-template <class T>
-inline Vector3D<T> &Vector3D<T>::operator/=(T t) {
+inline Vector3D &Vector3D::operator/=(float t) {
     x /= t;
     y /= t;
     z /= t;
     return *this;
 }
 
-template <class T>
-inline const Vector3D<T> operator+(const Vector3D<T> &v1, const Vector3D<T> &v2) {
-    return Vector3D<T>(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+inline const Vector3D operator+(const Vector3D &v1, const Vector3D &v2) {
+    return Vector3D(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
 }
 
-template <class T>
-inline const Vector3D<T> operator-(const Vector3D<T> &v1, const Vector3D<T> &v2) {
-    return Vector3D<T>(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+inline const Vector3D operator-(const Vector3D &v1, const Vector3D &v2) {
+    return Vector3D(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
 }
 
-template <class T>
-inline const Vector3D<T> operator*(const Vector3D<T> &v, T t) {
-    return Vector3D<T>(v.x * t, v.y * t, v.z * t);
+inline const Vector3D operator*(const Vector3D &v, float t) {
+    return Vector3D(v.x * t, v.y * t, v.z * t);
 }
 
-template <class T>
-inline const Vector3D<T> operator*(T t, const Vector3D<T> &v) {
-    return Vector3D<T>(v.x * t, v.y * t, v.z * t);
+inline const Vector3D operator*(float t, const Vector3D &v) {
+    return Vector3D(v.x * t, v.y * t, v.z * t);
 }
 
-template <class T>
-inline const Vector3D<T> operator/(const Vector3D<T> &v, T t) {
-    return Vector3D<T>(v.x / t, v.y / t, v.z / t);
+inline const Vector3D operator/(const Vector3D &v, float t) {
+    return Vector3D(v.x / t, v.y / t, v.z / t);
 }
 
-template <class T>
-inline T Vector3D<T>::lengthSquared() {
+inline float Vector3D::lengthSquared() {
     return dotProduct(*this, *this);
 }
 
-template <class T>
-inline T Vector3D<T>::length() {
+inline float Vector3D::length() {
     return std::sqrt(lengthSquared());
 }
 
-template <class T>
-inline void Vector3D<T>::normalize() {
+inline void Vector3D::normalize() {
     *this /= length();
 }
 
-template <class T>
-inline T Vector3D<T>::dotProduct(const Vector3D &v1, const Vector3D &v2) {
+inline float Vector3D::dotProduct(const Vector3D &v1, const Vector3D &v2) {
     return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
 }
-
-
-typedef Vector3D<float> Vector3DF;
 
 } // inlinemath
 #endif // INLINEMATH_H
