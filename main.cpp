@@ -111,8 +111,6 @@ protected:
     void paintEvent(QPaintEvent *pe) override {
         (void) pe;
 
-        qDebug() << __func__ << size();
-
         renderer_.render(image_.get());
 
         QPainter p(this);
@@ -121,8 +119,6 @@ protected:
 
     void resizeEvent(QResizeEvent *event) {
         (void) event;
-
-        qDebug() << __func__ << size();
 
         image_.reset(new QImage(size(), QImage::Format_ARGB32));
     }
