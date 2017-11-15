@@ -117,7 +117,7 @@ protected:
         p.drawImage(0, 0, *image_.get());
     }
 
-    void resizeEvent(QResizeEvent *event) {
+    void resizeEvent(QResizeEvent *event) override {
         (void) event;
 
         image_.reset(new QImage(size(), QImage::Format_ARGB32));
@@ -154,6 +154,15 @@ void animate(PotentialField &field) {
         }
         field[i].setPos(pos);
     }
+}
+
+// non-inlined, never called function to see the asm produced in the debugger
+float myChargeAt(const Charge &charge, const Vector3D &pos, Vector3D &gradient) {
+    return charge.fieldAt(pos, gradient);
+}
+
+float myFieldAt(const PotentialField &field, const Vector3D &pos, Vector3D &gradient) {
+    return field.fieldAt(pos, gradient);
 }
 
 int main(int argc, char *argv[])

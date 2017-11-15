@@ -131,7 +131,7 @@ private:
     QSize size_;
 
     // temporary pointer to image used during rendering
-     QImage *image_;
+    QImage *image_;
 
     // threading
     volatile int threadCount_;

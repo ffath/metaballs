@@ -7,6 +7,7 @@ CONFIG += c++11
 TARGET = metaballs
 CONFIG -= app_bundle
 
+QMAKE_CXXFLAGS += -msse2
 QMAKE_CXXFLAGS_RELEASE -= -O2
 QMAKE_CXXFLAGS_RELEASE += -O3
 

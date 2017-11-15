@@ -67,7 +67,7 @@ public:
             float gradval = std::abs(Vector3D::dotProduct(gradient, direction)); // gradient value projected on direction
             float disp = delta / gradval;
             if (std::abs(disp) > step) { // going too fast ?
-                disp = signbit(disp) ? -step : step;
+                disp = std::signbit(disp) ? -step : step;
             }
             pos += disp * direction;
             walked += disp;
