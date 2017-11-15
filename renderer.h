@@ -42,23 +42,38 @@ template <class F>
 class FieldRenderer : public Renderer {
 public:
     FieldRenderer(const F &field) : field_(field), image_(nullptr) {
+        qInfo() << __func__ << "in";
+
         setFrustum(2.0, 50.0, -2.0, 37.5);
 
-        threadCount_ = QThread::idealThreadCount();
+        threadCount_ = QThread::idealThreadCount() * 2;
         if (threadCount_ == -1) {
             threadCount_ = 1;
         }
 
+        workers_ = new QThread *[threadCount_];
         for (int i = 0; i < threadCount_; i++) {
-            QThread *worker = new WorkerThread(i, std::bind(&FieldRenderer::process, this, std::placeholders::_1));
-            worker->start();
+            workers_[i] = new WorkerThread(i, std::bind(&FieldRenderer::process, this, std::placeholders::_1));
+            workers_[i]->start();
         }
+        semaphoreStartWaiting_.acquire(threadCount_);
+        qInfo() << __func__ << "out";
     }
 
     ~FieldRenderer() override {
+        qInfo() << __func__ << "in";
+
         int threadCount = threadCount_;
         threadCount_ = 0;
-        semaphoreBegin_.release(threadCount);
+        semaphoreBeginWorking_.release(threadCount);
+        for (int i = 0; i < threadCount; i++) {
+            workers_[i]->wait(ULONG_MAX);
+            delete workers_[i];
+            workers_[i] = nullptr;
+        }
+        delete workers_;
+
+        qInfo() << __func__ << "out";
     }
 
     void setFrustum(float front, float frontZoom, float back, float backZoom) {
@@ -82,11 +97,12 @@ public:
         time.start();
 
         image_ = image;
-        semaphoreBegin_.release(threadCount_);
-        semaphoreEnd_.acquire(threadCount_);
+        semaphoreBeginWorking_.release(threadCount_);
+        semaphoreWorkDone_.acquire(threadCount_);
+        semaphoreStartWaiting_.release(threadCount_);
         image_ = nullptr;
 
-        qDebug() << __func__ << time.elapsed() << "ms";
+        qInfo() << __func__ << time.elapsed() << "ms";
     }
 
 private:
@@ -115,12 +131,14 @@ private:
     QSize size_;
 
     // temporary pointer to image used during rendering
-    QImage *image_;
+     QImage *image_;
 
     // threading
-    int threadCount_;
-    QSemaphore semaphoreBegin_;
-    QSemaphore semaphoreEnd_;
+    volatile int threadCount_;
+    QThread **workers_;
+    QSemaphore semaphoreBeginWorking_;
+    QSemaphore semaphoreWorkDone_;
+    QSemaphore semaphoreStartWaiting_;
 
     // update transformation matrices
     void updateTransforms() {
@@ -167,13 +185,15 @@ private:
     }
 
     void process(int threadNumber) {
-        qDebug() << "thread" << threadNumber << "in";
+        qInfo() << "thread" << threadNumber << "in";
+
+        semaphoreStartWaiting_.release();
 
         // temp: set light sources elsewhere
         Vector3D lightSource(0.0, 0.0, 50.0);
 
         while (true) {
-            semaphoreBegin_.acquire();
+            semaphoreBeginWorking_.acquire();
 
             if (threadCount_ == 0)
                 break;
@@ -213,10 +233,11 @@ private:
                 line += bytesPerLine;
             }
 
-            semaphoreEnd_.release();
+            semaphoreWorkDone_.release();
+            semaphoreStartWaiting_.acquire();
         }
 
-        qDebug() << "thread" << threadNumber << "out";
+        qInfo() << "thread" << threadNumber << "out";
     }
 };
 #endif // RENDERER_H
