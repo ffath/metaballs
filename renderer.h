@@ -44,12 +44,12 @@ private:
 template <class F>
 class FieldRenderer : public Renderer {
 public:
-    FieldRenderer(const F &field) : field_(field), image_(nullptr) {
+    FieldRenderer(const F &field) : field_(field), image_(nullptr), lineNumber_(0) {
         qDebug() << __func__ << "in";
 
         setFrustum(2.0, 50.0, -2.0, 37.5);
 
-        threadCount_ = QThread::idealThreadCount() * 2;
+        threadCount_ = QThread::idealThreadCount();
         if (threadCount_ == -1) {
             threadCount_ = 1;
         }
@@ -102,6 +102,7 @@ public:
         image_ = image;
         semaphoreBeginWorking_.release(threadCount_);
         semaphoreWorkDone_.acquire(threadCount_);
+        lineNumber_ = 0;
         semaphoreStartWaiting_.release(threadCount_);
         image_ = nullptr;
 
@@ -143,6 +144,7 @@ private:
     QSemaphore semaphoreBeginWorking_;
     QSemaphore semaphoreWorkDone_;
     QSemaphore semaphoreStartWaiting_;
+    volatile int lineNumber_;
 
     // update transformation matrices
     void updateTransforms() {
@@ -219,21 +221,20 @@ private:
             if (threadCount_ == 0)
                 break;
 
-            uchar *line = image_->bits();
+            uchar *bits = image_->bits(), *line = nullptr;
             int bytesPerLine = image_->bytesPerLine();
             Ray *rays = rays_.get();
 
             int w = size_.width();
             int h = size_.height();
 
-            // my range
-            int y1 = (h / threadCount_) * threadNumber;
-            int y2 = (h / threadCount_) * (threadNumber + 1);
-            line += y1 * bytesPerLine;
+            // each thread is going to find itself a line to draw until there's none left
+            int y;
+            while ((y = __sync_fetch_and_add(&lineNumber_, 1)) < h) {
+                line = bits + y * bytesPerLine;
 
-            // lines commented out in the margin are the former non SSE2 code
-            // that does not seem to be actually slower (why i kept it, just in case)
-            for (int y = y1; y < y2; y++) {
+                // lines commented out in the margin are the former non SSE2 code
+                // that does not seem to be actually slower (why i kept it, just in case)
                 for (int x = 0; x < w; x += 4) {
                     for (int n = 0; n < 4; n++) {
                         Ray &r = rays[y * stride_ + x + n];
@@ -283,7 +284,6 @@ private:
                     ((uint *) line)[x + 3] = qRgb(pixel[2], pixel[2], pixel[2]);
                     ((uint *) line)[x + 4] = qRgb(pixel[3], pixel[3], pixel[3]);
                 }
-                line += bytesPerLine;
             }
 
             semaphoreWorkDone_.release();
