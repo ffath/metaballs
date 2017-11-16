@@ -104,7 +104,7 @@ public:
 
     DrawingArea(Renderer &renderer, QWidget *parent = nullptr) : QWidget(parent),
         renderer_(renderer),
-        image_(new QImage(size(), QImage::Format_ARGB32)) {
+        image_(createCompatibleImage(size())) {
     }
 
 protected:
@@ -120,12 +120,31 @@ protected:
     void resizeEvent(QResizeEvent *event) override {
         (void) event;
 
-        image_.reset(new QImage(size(), QImage::Format_ARGB32));
+        image_.reset(createCompatibleImage(size()));
     }
 
 private:
     Renderer &renderer_;
     std::unique_ptr<QImage> image_;
+
+    // we need a buffer where the number of pixels per line is a multiple of 4
+    // the format is ARBG32 so each pixel is 4 bytes wide.
+    static QImage *createCompatibleImage(const QSize &size) {
+        int bytesPerline = ((size.width() + 3) / 4) * 16;
+        uchar *data = new uchar[bytesPerline * size.height()];
+        return new QImage(
+                    data,
+                    size.width(),
+                    size.height(),
+                    bytesPerline,
+                    QImage::Format_ARGB32,
+                    cleanupImage,
+                    data);
+    }
+
+    static void cleanupImage(void *info) {
+        delete static_cast<uchar *>(info);
+    }
 };
 
 

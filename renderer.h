@@ -1,5 +1,6 @@
 #ifndef RENDERER_H
 #define RENDERER_H
+#include <QAtomicInt>
 #include <QImage>
 #include <QSemaphore>
 #include <QThread>
@@ -7,6 +8,8 @@
 
 #include <functional>
 #include <memory>
+
+#include <emmintrin.h>
 
 #include "scalarfield.h"
 #include "inlinemath.h"
@@ -42,7 +45,7 @@ template <class F>
 class FieldRenderer : public Renderer {
 public:
     FieldRenderer(const F &field) : field_(field), image_(nullptr) {
-        qInfo() << __func__ << "in";
+        qDebug() << __func__ << "in";
 
         setFrustum(2.0, 50.0, -2.0, 37.5);
 
@@ -57,11 +60,11 @@ public:
             workers_[i]->start();
         }
         semaphoreStartWaiting_.acquire(threadCount_);
-        qInfo() << __func__ << "out";
+        qDebug() << __func__ << "out";
     }
 
     ~FieldRenderer() override {
-        qInfo() << __func__ << "in";
+        qDebug() << __func__ << "in";
 
         int threadCount = threadCount_;
         threadCount_ = 0;
@@ -73,7 +76,7 @@ public:
         }
         delete workers_;
 
-        qInfo() << __func__ << "out";
+        qDebug() << __func__ << "out";
     }
 
     void setFrustum(float front, float frontZoom, float back, float backZoom) {
@@ -102,7 +105,7 @@ public:
         semaphoreStartWaiting_.release(threadCount_);
         image_ = nullptr;
 
-        qInfo() << __func__ << time.elapsed() << "ms";
+        qDebug() << __func__ << time.elapsed() << "ms";
     }
 
 private:
@@ -126,6 +129,7 @@ private:
 
     // precalculated rays
     std::unique_ptr<Ray> rays_;
+    int stride_;
 
     // last image size
     QSize size_;
@@ -155,7 +159,7 @@ private:
         QTime time;
         time.start();
 
-        int w = size_.width();
+        int w = ((size_.width() + 3) / 4) * 4; // multiple of 4;
         int h = size_.height();
 
         Ray *rays = new Ray[w * h];
@@ -179,13 +183,30 @@ private:
                 r.length = length;
             }
         }
+
         rays_.reset(rays);
+        stride_ = w;
 
         qDebug() << __func__ << time.elapsed() << "ms";
     }
 
     void process(int threadNumber) {
-        qInfo() << "thread" << threadNumber << "in";
+        float dotProduct[4];
+        float lengthSquaredNorm[4];
+        float lengthSquaredLight[4];
+        uchar pixel[4];
+
+        Vector3D i;
+        Vector3D normal;
+        Vector3D lightVec;
+
+        __m128 dotp, a, b, div;
+        __m128 zero = _mm_set1_ps(0.0f);
+        __m128 one = _mm_set1_ps(1.0f);
+        __m128 f255 = _mm_set1_ps(255.0f);
+        __m128i light;
+
+        qDebug() << "thread" << threadNumber << "in";
 
         semaphoreStartWaiting_.release();
 
@@ -202,10 +223,6 @@ private:
             int bytesPerLine = image_->bytesPerLine();
             Ray *rays = rays_.get();
 
-            Vector3D i;
-            Vector3D normal;
-            Vector3D lightVec;
-
             int w = size_.width();
             int h = size_.height();
 
@@ -214,21 +231,57 @@ private:
             int y2 = (h / threadCount_) * (threadNumber + 1);
             line += y1 * bytesPerLine;
 
+            // lines commented out in the margin are the former non SSE2 code
+            // that does not seem to be actually slower (why i kept it, just in case)
             for (int y = y1; y < y2; y++) {
-                for (int x = 0; x < w; x++) {
-                    Ray &r = rays[y * w + x];
-                    uint c = 0;
+                for (int x = 0; x < w; x += 4) {
+                    for (int n = 0; n < 4; n++) {
+                        Ray &r = rays[y * stride_ + x + n];
+//                        uint c = 0;
 
-                    if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
-                        normal.normalize();
-                        lightVec = i - lightSource;
-                        lightVec.normalize();
-                        float light = Vector3D::dotProduct(normal, lightVec);
-                        if (light < 0.0) light = 0.0;
-                        if (light > 1.0) light = 1.0;
-                        c = light * 255;
+                        if (field_.intersect(r.p, r.direction, r.length, i, normal)) {
+//                            normal.normalize();
+                            lightVec = i - lightSource;
+//                            lightVec.normalize();
+//                            float light = Vector3D::dotProduct(normal, lightVec);
+//                            if (light < 0.0) light = 0.0;
+//                            if (light > 1.0) light = 1.0;
+//                            c = light * 255;
+
+                            dotProduct[n] = Vector3D::dotProduct(normal, lightVec);
+                            lengthSquaredNorm[n] = normal.lengthSquared();
+                            lengthSquaredLight[n] = lightVec.lengthSquared();
+                        }
+                        else {
+                            dotProduct[n] = 0.0f;
+                            lengthSquaredNorm[n] = 1.0f;
+                            lengthSquaredLight[n] = 1.0f;
+                        }
+//                        ((uint *) line)[x + n] = qRgb(c, c, c);
                     }
-                    ((uint *) line)[x] = qRgb(c, c, c);
+
+                    // a little sse magic
+                    dotp = _mm_load_ps(dotProduct);
+                    a = _mm_load_ps(lengthSquaredLight);
+                    b = _mm_load_ps(lengthSquaredNorm);
+
+                    div = _mm_mul_ps(a, b);         // div = light^2 * norm^2
+                    div = _mm_sqrt_ps(div);         // div = sqrt(light^2 * norm^2)
+                    dotp = _mm_div_ps(dotp, div);   // dotp = dotProduct(norm/|norm|, light/|light|)
+                    dotp = _mm_max_ps(dotp, zero);  // nothing under 0
+                    dotp = _mm_min_ps(dotp, one);   // nothing above 1
+                    dotp = _mm_mul_ps(dotp, f255);  // expand to 0..255
+
+                    light = _mm_cvtps_epi32(dotp);  // convert to 4 * int32
+                    light = _mm_packs_epi32(light, light);  // convert to 2 * 4 * int16 (sort of)
+                    light = _mm_packus_epi16(light, light); // same to 2 * 2 * 4 * unit8
+                    *((int *) &pixel[0]) = _mm_cvtsi128_si32(light);    // write 32 LSB to pixels
+
+                    // write the pixels, unroll loop
+                    ((uint *) line)[x + 1] = qRgb(pixel[0], pixel[0], pixel[0]);
+                    ((uint *) line)[x + 2] = qRgb(pixel[1], pixel[1], pixel[1]);
+                    ((uint *) line)[x + 3] = qRgb(pixel[2], pixel[2], pixel[2]);
+                    ((uint *) line)[x + 4] = qRgb(pixel[3], pixel[3], pixel[3]);
                 }
                 line += bytesPerLine;
             }
@@ -237,7 +290,7 @@ private:
             semaphoreStartWaiting_.acquire();
         }
 
-        qInfo() << "thread" << threadNumber << "out";
+        qDebug() << "thread" << threadNumber << "out";
     }
 };
 #endif // RENDERER_H
